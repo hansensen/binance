@@ -1,0 +1,6 @@
+service: test-dependenciesprovider:
+  name: aws
+  runtime: python3.8
+  functions:
+  hello:
+    handler: src/handler.hello
