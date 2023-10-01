@@ -17,8 +17,8 @@ dynamodb = boto3.resource('dynamodb')
 table = dynamodb.Table('TradingState')
 
 # Gain and Loss thresholds
-GAIN_THRESHOLD = 0.02  # Adjust as necessary
-LOSS_THRESHOLD = 0.01  # Adjust as necessary
+GAIN_THRESHOLD = 0.05  # Adjust as necessary
+LOSS_THRESHOLD = 0.03  # Adjust as necessary
 
 def save_state_to_dynamodb(trade_data):
     """Saves trade data to DynamoDB."""
