@@ -55,7 +55,7 @@ def execute_trade(symbol="BTCUSDT"):
         current_price = float(client.get_symbol_ticker(symbol=symbol)["price"])
         last_trade = get_last_trade_from_dynamodb(symbol)
 
-        position = None
+        position = "NEUTRAL"
         last_trade_price = 0
         if last_trade:
             position = last_trade.get('position')
@@ -68,36 +68,21 @@ def execute_trade(symbol="BTCUSDT"):
         percentage_change = (current_price - last_trade_price) / last_trade_price if last_trade_price != 0 else 0
 
         # Gain/Loss control checks
-        if position == "LONG":
-            if percentage_change >= GAIN_THRESHOLD:
-                trade_action = "SELL"
-                position = "SHORT"
-                accumulated_gain += Decimal(str(percentage_change))
-            elif percentage_change <= -LOSS_THRESHOLD:
-                trade_action = "SELL"
-                position = "SHORT"
-                accumulated_gain += Decimal(str(percentage_change))
-        elif position == "SHORT":
-            if percentage_change <= -GAIN_THRESHOLD:
-                trade_action = "BUY"
-                position = "LONG"
-                accumulated_gain -= Decimal(str(percentage_change))
-            elif percentage_change >= LOSS_THRESHOLD:
-                trade_action = "BUY"
-                position = "LONG"
-                accumulated_gain -= Decimal(str(percentage_change))
-
-        if trade_action == "SELL":
-            accumulated_gain = Decimal('0')
+        if position == "LONG" and (percentage_change >= GAIN_THRESHOLD or percentage_change <= -LOSS_THRESHOLD):
+            trade_action = "SELL"
+            position = "NEUTRAL"
+            accumulated_gain  += last_trade_price
 
         # Dual MA crossover checks (only if no action determined by gain/loss control)
         if trade_action == "HOLD":
             if short_ma > long_ma and position != "LONG":
                 trade_action = "BUY"
                 position = "LONG"
-            elif short_ma < long_ma and position != "SHORT":
+                accumulated_gain -= last_trade_price
+            elif short_ma < long_ma and position != "NEUTRAL":
                 trade_action = "SELL"
-                position = "SHORT"
+                position = "NEUTRAL"
+                accumulated_gain += last_trade_price
 
         trade_data = {
             "price": Decimal(str(current_price)),
