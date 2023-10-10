@@ -52,14 +52,14 @@ def execute_trade(symbol="BTCUSDT"):
         short_ma = sum(close_values[-SHORT_WINDOW:]) / SHORT_WINDOW
         long_ma = sum(close_values[-LONG_WINDOW:]) / LONG_WINDOW
 
-        current_price = float(client.get_symbol_ticker(symbol=symbol)["price"])
+        current_price = Decimal(client.get_symbol_ticker(symbol=symbol)["price"])
         last_trade = get_last_trade_from_dynamodb(symbol)
 
         position = "NEUTRAL"
         last_trade_price = 0
         if last_trade:
             position = last_trade.get('position')
-            last_trade_price = float(last_trade.get('price', 0))
+            last_trade_price = Decimal(last_trade.get('price', 0))
             accumulated_gain = Decimal(last_trade.get('accumulated_gain', '0'))
         else:
             accumulated_gain = Decimal('0')
@@ -71,18 +71,18 @@ def execute_trade(symbol="BTCUSDT"):
         if position == "LONG" and (percentage_change >= GAIN_THRESHOLD or percentage_change <= -LOSS_THRESHOLD):
             trade_action = "SELL"
             position = "NEUTRAL"
-            accumulated_gain  += last_trade_price
+            accumulated_gain  += current_price
 
         # Dual MA crossover checks (only if no action determined by gain/loss control)
         if trade_action == "HOLD":
             if short_ma > long_ma and position != "LONG":
                 trade_action = "BUY"
                 position = "LONG"
-                accumulated_gain -= last_trade_price
+                accumulated_gain -= current_price
             elif short_ma < long_ma and position != "NEUTRAL":
                 trade_action = "SELL"
                 position = "NEUTRAL"
-                accumulated_gain += last_trade_price
+                accumulated_gain += current_price
 
         trade_data = {
             "price": Decimal(str(current_price)),
