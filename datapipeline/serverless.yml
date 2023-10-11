@@ -1,0 +1,28 @@
+service: datapipeline
+
+frameworkVersion: "3"
+
+provider:
+  name: aws
+  runtime: python3.8
+  stage: dev
+  region: ap-southeast-1
+  iam:
+    role:
+      statements:
+        - Effect: Allow
+          Action:
+            - dynamodb:PutItem
+            - dynamodb:Scan
+            - logs:CreateLogStream
+            - logs:CreateLogGroup
+            - logs:TagResource
+            - logs:PutLogEvents
+          Resource: "*"
+
+functions:
+  hello:
+    handler: handler.lambda_handler
+    events:
+      - schedule:
+          rate: rate(1 minute)

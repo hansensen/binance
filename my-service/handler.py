@@ -16,9 +16,12 @@ client = Client(BINANCE_API_KEY, BINANCE_API_SECRET)
 dynamodb = boto3.resource('dynamodb')
 table = dynamodb.Table('TradingState')
 
-# Gain and Loss thresholds (as percentages)
-GAIN_THRESHOLD = 0.02  # e.g., 2% profit
-LOSS_THRESHOLD = 0.01  # e.g., 1% loss
+# Constants
+RSI_PERIOD = 14
+RSI_OVERBOUGHT = 80
+RSI_OVERSOLD = 20
+STOP_LOSS = 0.0015  # e.g., 0.15% stop-loss
+TAKE_PROFIT = 0.001  # e.g., 0.1% profit
 
 SHORT_WINDOW = 5  # e.g., 5-minute MA
 LONG_WINDOW = 20  # e.g., 20-minute MA
@@ -41,6 +44,18 @@ def get_last_trade_from_dynamodb(symbol):
         return response['Items'][0]
     return None
 
+def calculate_rsi(prices, period):
+    """Calculate the RSI based on closing prices and period."""
+    deltas = [prices[i+1] - prices[i] for i in range(len(prices)-1)]
+    gains = [delta for delta in deltas if delta > 0]
+    losses = [-delta for delta in deltas if delta < 0]
+
+    avg_gain = sum(gains[-period:]) / period
+    avg_loss = -sum(losses[-period:]) / period
+    rs = avg_gain / avg_loss if avg_loss != 0 else 0
+
+    return 100 - (100 / (1 + rs))
+
 def execute_trade(symbol="BTCUSDT"):
     try:
         klines = client.get_historical_klines(symbol, Client.KLINE_INTERVAL_1MINUTE, "30 minutes ago UTC")
@@ -48,6 +63,8 @@ def execute_trade(symbol="BTCUSDT"):
             return
 
         close_values = [float(k[4]) for k in klines]
+        rsi = calculate_rsi(close_values, RSI_PERIOD)
+
 
         short_ma = sum(close_values[-SHORT_WINDOW:]) / SHORT_WINDOW
         long_ma = sum(close_values[-LONG_WINDOW:]) / LONG_WINDOW
@@ -67,13 +84,18 @@ def execute_trade(symbol="BTCUSDT"):
         trade_action = "HOLD"
         percentage_change = (current_price - last_trade_price) / last_trade_price if last_trade_price != 0 else 0
 
-        # Gain/Loss control checks
-        if position == "LONG" and (percentage_change >= GAIN_THRESHOLD or percentage_change <= -LOSS_THRESHOLD):
-            trade_action = "SELL"
-            position = "NEUTRAL"
-            accumulated_gain  += current_price
+        # RSI based decision augmentation
+        if position == "LONG":
+            if rsi > RSI_OVERBOUGHT or percentage_change <= -STOP_LOSS or percentage_change >= TAKE_PROFIT:
+                trade_action = "SELL"
+                position = "NEUTRAL"
+                accumulated_gain += current_price
+        elif position == "NEUTRAL" and rsi < RSI_OVERSOLD:
+            trade_action = "BUY"
+            position = "LONG"
+            accumulated_gain -= current_price
 
-        # Dual MA crossover checks (only if no action determined by gain/loss control)
+        # Dual MA crossover checks (only if no action determined by RSI or gain/loss control)
         if trade_action == "HOLD":
             if short_ma > long_ma and position != "LONG":
                 trade_action = "BUY"
@@ -83,6 +105,7 @@ def execute_trade(symbol="BTCUSDT"):
                 trade_action = "SELL"
                 position = "NEUTRAL"
                 accumulated_gain += current_price
+
 
         trade_data = {
             "price": Decimal(str(current_price)),
