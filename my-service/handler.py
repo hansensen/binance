@@ -73,39 +73,42 @@ def execute_trade(symbol="BTCUSDT"):
         last_trade = get_last_trade_from_dynamodb(symbol)
 
         position = "NEUTRAL"
-        last_trade_price = 0
+        last_trade_price = None  # Initialize to None
+        accumulated_gain = Decimal('0')
+
         if last_trade:
             position = last_trade.get('position')
             last_trade_price = Decimal(last_trade.get('price', 0))
             accumulated_gain = Decimal(last_trade.get('accumulated_gain', '0'))
-        else:
-            accumulated_gain = Decimal('0')
 
         trade_action = "HOLD"
-        percentage_change = (current_price - last_trade_price) / last_trade_price if last_trade_price != 0 else 0
+        percentage_change = (current_price - last_trade_price) / last_trade_price if last_trade_price else 0
 
         # RSI based decision augmentation
         if position == "LONG":
             if rsi > RSI_OVERBOUGHT or percentage_change <= -STOP_LOSS or percentage_change >= TAKE_PROFIT:
                 trade_action = "SELL"
                 position = "NEUTRAL"
-                accumulated_gain += current_price
+                if last_trade_price:  # If a purchase price exists
+                    occurred_gain = current_price - last_trade_price
+                    accumulated_gain += occurred_gain
+
         elif position == "NEUTRAL" and rsi < RSI_OVERSOLD:
             trade_action = "BUY"
             position = "LONG"
             accumulated_gain -= current_price
 
-        # Dual MA crossover checks (only if no action determined by RSI or gain/loss control)
         if trade_action == "HOLD":
             if short_ma > long_ma and position != "LONG":
                 trade_action = "BUY"
                 position = "LONG"
-                accumulated_gain -= current_price
+                last_trade_price = current_price  # Store the purchase price for future calculations
             elif short_ma < long_ma and position != "NEUTRAL":
                 trade_action = "SELL"
                 position = "NEUTRAL"
-                accumulated_gain += current_price
-
+                if last_trade_price:  # If a purchase price exists
+                    occurred_gain = current_price - last_trade_price
+                    accumulated_gain += occurred_gain
 
         trade_data = {
             "price": Decimal(str(current_price)),
@@ -113,6 +116,8 @@ def execute_trade(symbol="BTCUSDT"):
             "position": position,
             "accumulated_gain": accumulated_gain
         }
+        if last_trade_price is not None:
+            trade_data["last_trade_price"] = last_trade_price  # Add the purchase price to DynamoDB
 
         print(f"Current Price: {current_price}")
         print(f"Short MA: {short_ma}")
@@ -125,6 +130,7 @@ def execute_trade(symbol="BTCUSDT"):
     except BinanceAPIException as e:
         print(f"BinanceAPIException: {e}")
         return None
+
 
 def lambda_handler(event, context):
     result = execute_trade()
